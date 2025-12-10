@@ -17,7 +17,9 @@ class ContactController extends Controller
 {
     public function index()
     {
+        // Only load essential fields for custom fields (exclude field_options JSON to reduce payload)
         $customFields = CustomField::where('is_active', true)
+            ->select('id', 'field_name', 'field_type', 'is_active', 'sort_order')
             ->orderBy('sort_order')
             ->get();
         return view('contacts.index', compact('customFields'));
@@ -25,7 +27,13 @@ class ContactController extends Controller
 
     public function getContacts(Request $request)
     {
-        $query = Contact::with(['customFieldValues.customField', 'additionalEmails', 'additionalPhones', 'files'])
+        // Optimize eager loading - load relationships without field_options to reduce payload
+        $query = Contact::with([
+            'customFieldValues.customField:id,field_name,field_type',
+            'additionalEmails',
+            'additionalPhones',
+            'files'
+        ])
             ->where('status', 'active');
 
         if ($request->has('search') && $request->search) {
@@ -46,7 +54,16 @@ class ContactController extends Controller
 
         $contacts = $query->orderBy('created_at', 'desc')->paginate(10);
 
-        return response()->json($contacts);
+        // Return paginated response with proper structure
+        return response()->json([
+            'data' => $contacts->items(),
+            'current_page' => $contacts->currentPage(),
+            'last_page' => $contacts->lastPage(),
+            'per_page' => $contacts->perPage(),
+            'total' => $contacts->total(),
+            'from' => $contacts->firstItem(),
+            'to' => $contacts->lastItem(),
+        ]);
     }
 
     public function store(Request $request)
@@ -59,6 +76,15 @@ class ContactController extends Controller
             'profile_image' => 'nullable|image|max:2048',
             'additional_file' => 'nullable|file|max:5120',
             'custom_fields' => 'nullable|array',
+        ], [
+            'name.required' => 'The name field is required.',
+            'email.required' => 'The email field is required.',
+            'email.email' => 'Please enter a valid email address.',
+            'email.unique' => 'This email address is already registered.',
+            'phone.digits_between' => 'The phone number must be 10 digits.',
+            'profile_image.image' => 'The profile image must be an image file.',
+            'profile_image.max' => 'The profile image must not be larger than 2MB.',
+            'additional_file.max' => 'The additional file must not be larger than 5MB.',
         ]);
 
         try {
@@ -117,7 +143,18 @@ class ContactController extends Controller
 
     public function show($id)
     {
-        $contact = Contact::with(['customFieldValues.customField', 'additionalEmails', 'additionalPhones', 'files'])
+        // Load field_options only when needed (for select fields in edit form)
+        $contact = Contact::with([
+            'customFieldValues' => function($q) {
+                $q->select('id', 'contact_id', 'custom_field_id', 'field_value');
+            },
+            'customFieldValues.customField' => function($q) {
+                $q->select('id', 'field_name', 'field_type', 'field_options');
+            },
+            'additionalEmails:id,contact_id,email',
+            'additionalPhones:id,contact_id,phone',
+            'files:id,contact_id,file_name,file_path'
+        ])
             ->findOrFail($id);
         
         return response()->json($contact);
@@ -135,6 +172,15 @@ class ContactController extends Controller
             'profile_image' => 'nullable|image|max:2048',
             'additional_file' => 'nullable|file|max:5120',
             'custom_fields' => 'nullable|array',
+        ], [
+            'name.required' => 'The name field is required.',
+            'email.required' => 'The email field is required.',
+            'email.email' => 'Please enter a valid email address.',
+            'email.unique' => 'This email address is already registered.',
+            'phone.digits_between' => 'The phone number must be 10 digits.',
+            'profile_image.image' => 'The profile image must be an image file.',
+            'profile_image.max' => 'The profile image must not be larger than 2MB.',
+            'additional_file.max' => 'The additional file must not be larger than 5MB.',
         ]);
 
         try {

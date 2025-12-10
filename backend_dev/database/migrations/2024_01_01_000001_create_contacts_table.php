@@ -30,6 +30,10 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->integer('sort_order')->default(0);
             $table->timestamps();
+            
+            // Add index on sort_order for faster sorting
+            $table->index('sort_order');
+            $table->index('is_active');
         });
 
         Schema::create('contact_custom_fields', function (Blueprint $table) {

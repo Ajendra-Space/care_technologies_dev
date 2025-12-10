@@ -296,6 +296,9 @@
         });
 
         function loadContacts(page = 1) {
+            currentPage = page;
+            $('#contactsTableBody').html('<tr><td colspan="7" class="text-center">Loading...</td></tr>');
+            
             $.ajax({
                 url: '{{ route("contacts.list") }}',
                 method: 'GET',
@@ -306,31 +309,105 @@
                     email_filter: $('#emailFilter').val(),
                 },
                 success: function(response) {
-                    renderContacts(response.data);
-                    renderPagination(response);
+                    console.log('Contacts response:', response);
+                    
+                    // Handle both paginated and direct response formats
+                    let contacts = null;
+                    let pagination = null;
+                    
+                    if (response && response.data && Array.isArray(response.data)) {
+                        // Paginated response format
+                        contacts = response.data;
+                        pagination = {
+                            current_page: response.current_page || 1,
+                            last_page: response.last_page || 1,
+                            per_page: response.per_page || 10,
+                            total: response.total || 0,
+                            from: response.from || 0,
+                            to: response.to || 0
+                        };
+                    } else if (Array.isArray(response)) {
+                        // Direct array response
+                        contacts = response;
+                        pagination = {
+                            current_page: 1,
+                            last_page: 1,
+                            per_page: response.length,
+                            total: response.length,
+                            from: 1,
+                            to: response.length
+                        };
+                    } else {
+                        console.error('Unexpected response format:', response);
+                        contacts = [];
+                        pagination = {
+                            current_page: 1,
+                            last_page: 1,
+                            per_page: 10,
+                            total: 0,
+                            from: 0,
+                            to: 0
+                        };
+                    }
+                    
+                    renderContacts(contacts);
+                    renderPagination(pagination);
                 },
-                error: function() {
-                    showAlert('Error loading contacts', 'danger');
+                error: function(xhr, status, error) {
+                    let message = 'Error loading contacts';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        message = xhr.responseJSON.message;
+                    } else if (error) {
+                        message = 'Error: ' + error;
+                    }
+                    $('#contactsTableBody').html('<tr><td colspan="7" class="text-center text-danger">' + message + '</td></tr>');
+                    showAlert(message, 'danger');
+                    console.error('Contacts load error:', xhr, status, error);
                 }
             });
         }
 
         function renderContacts(contacts) {
+            console.log('Rendering contacts:', contacts);
             let html = '';
+            
+            // Check if contacts is valid
+            if (!contacts) {
+                console.error('Contacts is null or undefined');
+                html = '<tr><td colspan="7" class="text-center text-danger">No data received</td></tr>';
+                $('#contactsTableBody').html(html);
+                return;
+            }
+            
+            if (!Array.isArray(contacts)) {
+                console.error('Contacts is not an array:', typeof contacts, contacts);
+                html = '<tr><td colspan="7" class="text-center text-danger">Invalid data format</td></tr>';
+                $('#contactsTableBody').html(html);
+                return;
+            }
+            
             if (contacts.length === 0) {
                 html = '<tr><td colspan="7" class="text-center">No contacts found</td></tr>';
             } else {
                 contacts.forEach(function(contact) {
+                    if (!contact) {
+                        console.warn('Skipping null contact');
+                        return;
+                    }
+                    
                     let profileImg = contact.profile_image 
                         ? `/storage/${contact.profile_image}` 
                         : 'https://via.placeholder.com/80';
                     
                     let customFieldsHtml = '';
-                    if (contact.custom_field_values && contact.custom_field_values.length > 0) {
+                    if (contact.custom_field_values && Array.isArray(contact.custom_field_values) && contact.custom_field_values.length > 0) {
                         contact.custom_field_values.forEach(function(cf) {
-                            customFieldsHtml += `<span class="custom-field-badge">${cf.custom_field.field_name}: ${cf.field_value}</span>`;
+                            if (cf && cf.custom_field && cf.custom_field.field_name) {
+                                customFieldsHtml += `<span class="custom-field-badge">${cf.custom_field.field_name}: ${cf.field_value || ''}</span>`;
+                            }
                         });
-                    } else {
+                    }
+                    if (!customFieldsHtml) {
                         customFieldsHtml = '<span class="text-muted">None</span>';
                     }
 
@@ -426,11 +503,31 @@
                     }
                 },
                 error: function(xhr) {
-                    let message = 'Error saving contact';
-                    if (xhr.responseJSON && xhr.responseJSON.message) {
-                        message = xhr.responseJSON.message;
+                    let messages = [];
+                    
+                    if (xhr.responseJSON) {
+                        // Handle Laravel validation errors
+                        if (xhr.responseJSON.errors) {
+                            // Collect all validation errors
+                            Object.keys(xhr.responseJSON.errors).forEach(function(field) {
+                                xhr.responseJSON.errors[field].forEach(function(error) {
+                                    messages.push(error);
+                                });
+                            });
+                        } else if (xhr.responseJSON.message) {
+                            messages.push(xhr.responseJSON.message);
+                        }
                     }
-                    showAlert(message, 'danger');
+                    
+                    // If no specific errors found, show generic message
+                    if (messages.length === 0) {
+                        messages.push('Error saving contact. Please check all fields.');
+                    }
+                    
+                    // Show all error messages
+                    messages.forEach(function(msg) {
+                        showAlert(msg, 'danger');
+                    });
                 }
             });
         });
@@ -480,9 +577,17 @@
 
         function loadCustomFieldsForForm(contactCustomFields = []) {
             $.ajax({
-                url: '/custom-fields',
+                url: '/custom-fields?include_options=1',
                 method: 'GET',
                 success: function(fields) {
+                    // Handle both array and paginated response
+                    if (fields.data) {
+                        fields = fields.data;
+                    }
+                    if (!Array.isArray(fields)) {
+                        fields = [];
+                    }
+                    
                     let html = '<div class="row mb-3"><div class="col-12"><h6>Custom Fields</h6></div></div>';
                     
                     fields.forEach(function(field) {
@@ -569,11 +674,28 @@
                     }
                 },
                 error: function(xhr) {
-                    let message = 'Error merging contacts';
-                    if (xhr.responseJSON && xhr.responseJSON.message) {
-                        message = xhr.responseJSON.message;
+                    let messages = [];
+                    
+                    if (xhr.responseJSON) {
+                        // Handle Laravel validation errors
+                        if (xhr.responseJSON.errors) {
+                            Object.keys(xhr.responseJSON.errors).forEach(function(field) {
+                                xhr.responseJSON.errors[field].forEach(function(error) {
+                                    messages.push(error);
+                                });
+                            });
+                        } else if (xhr.responseJSON.message) {
+                            messages.push(xhr.responseJSON.message);
+                        }
                     }
-                    showAlert(message, 'danger');
+                    
+                    if (messages.length === 0) {
+                        messages.push('Error merging contacts');
+                    }
+                    
+                    messages.forEach(function(msg) {
+                        showAlert(msg, 'danger');
+                    });
                 }
             });
         });
@@ -588,6 +710,14 @@
                 url: '/custom-fields',
                 method: 'GET',
                 success: function(fields) {
+                    // Handle both array and paginated response
+                    if (fields.data) {
+                        fields = fields.data;
+                    }
+                    if (!Array.isArray(fields)) {
+                        fields = [];
+                    }
+                    
                     let html = '<table class="table"><thead><tr><th>Field Name</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
                     fields.forEach(function(field) {
                         html += `
@@ -657,11 +787,28 @@
                     }
                 },
                 error: function(xhr) {
-                    let message = 'Error creating custom field';
-                    if (xhr.responseJSON && xhr.responseJSON.message) {
-                        message = xhr.responseJSON.message;
+                    let messages = [];
+                    
+                    if (xhr.responseJSON) {
+                        // Handle Laravel validation errors
+                        if (xhr.responseJSON.errors) {
+                            Object.keys(xhr.responseJSON.errors).forEach(function(field) {
+                                xhr.responseJSON.errors[field].forEach(function(error) {
+                                    messages.push(error);
+                                });
+                            });
+                        } else if (xhr.responseJSON.message) {
+                            messages.push(xhr.responseJSON.message);
+                        }
                     }
-                    showAlert(message, 'danger');
+                    
+                    if (messages.length === 0) {
+                        messages.push('Error creating custom field');
+                    }
+                    
+                    messages.forEach(function(msg) {
+                        showAlert(msg, 'danger');
+                    });
                 }
             });
         });
@@ -683,13 +830,22 @@
         }
 
         function showAlert(message, type) {
-            let alertHtml = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            // Create a unique ID for this alert to allow multiple alerts
+            let alertId = 'alert-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            let icon = type === 'danger' ? '⚠️' : type === 'success' ? '✓' : 'ℹ️';
+            let alertHtml = `<div id="${alertId}" class="alert alert-${type} alert-dismissible fade show position-fixed" role="alert" style="z-index: 9999; top: 20px; right: 20px; min-width: 300px; max-width: 500px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <strong>${icon} ${type === 'danger' ? 'Error' : type === 'success' ? 'Success' : 'Info'}:</strong> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>`;
-            $('#alertContainer').html(alertHtml);
+            
+            // Append to body instead of replacing, so multiple alerts can show
+            $('body').append(alertHtml);
+            
+            // Auto-remove after 5 seconds
             setTimeout(function() {
-                $('.alert').fadeOut();
+                $('#' + alertId).fadeOut(300, function() {
+                    $(this).remove();
+                });
             }, 5000);
         }
 
