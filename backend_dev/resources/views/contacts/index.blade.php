@@ -230,10 +230,11 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Add Custom Field</h5>
+                    <h5 class="modal-title" id="customFieldModalTitle">Add Custom Field</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form id="addCustomFieldForm">
+                    <input type="hidden" id="customFieldId" name="field_id">
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label">Field Name <span class="text-danger">*</span></label>
@@ -265,7 +266,7 @@
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-success">Add Field</button>
+                        <button type="submit" class="btn btn-success" id="customFieldSubmitBtn">Add Field</button>
                     </div>
                 </form>
             </div>
@@ -748,14 +749,51 @@
         });
 
         $('#addCustomFieldBtn').click(function() {
+            $('#customFieldModalTitle').text('Add Custom Field');
+            $('#customFieldSubmitBtn').text('Add Field');
             $('#addCustomFieldForm')[0].reset();
+            $('#customFieldId').val('');
             $('#selectOptionsContainer').hide();
             $('#addCustomFieldModal').modal('show');
         });
 
+        function editCustomField(id) {
+            $.ajax({
+                url: `/custom-fields/${id}`,
+                method: 'GET',
+                success: function(field) {
+                    $('#customFieldModalTitle').text('Edit Custom Field');
+                    $('#customFieldSubmitBtn').text('Update Field');
+                    $('#customFieldId').val(field.id);
+                    $('#customFieldName').val(field.field_name);
+                    $('#customFieldType').val(field.field_type);
+                    
+                    // Show/hide options container based on field type
+                    if (field.field_type === 'select') {
+                        $('#selectOptionsContainer').show();
+                        // Populate options if they exist
+                        if (field.field_options && Array.isArray(field.field_options)) {
+                            $('#customFieldOptions').val(field.field_options.join('\n'));
+                        } else {
+                            $('#customFieldOptions').val('');
+                        }
+                    } else {
+                        $('#selectOptionsContainer').hide();
+                        $('#customFieldOptions').val('');
+                    }
+                    
+                    $('#addCustomFieldModal').modal('show');
+                },
+                error: function() {
+                    showAlert('Error loading custom field', 'danger');
+                }
+            });
+        }
+
         $('#addCustomFieldForm').submit(function(e) {
             e.preventDefault();
             
+            let fieldId = $('#customFieldId').val();
             let formData = {
                 field_name: $('#customFieldName').val(),
                 field_type: $('#customFieldType').val(),
@@ -774,9 +812,17 @@
                 }
             }
 
+            let url = fieldId ? `/custom-fields/${fieldId}` : '/custom-fields';
+            let method = 'POST';
+            
+            // Use method spoofing for PUT requests
+            if (fieldId) {
+                formData._method = 'PUT';
+            }
+
             $.ajax({
-                url: '/custom-fields',
-                method: 'POST',
+                url: url,
+                method: method,
                 data: formData,
                 success: function(response) {
                     if (response.success) {
@@ -803,7 +849,7 @@
                     }
                     
                     if (messages.length === 0) {
-                        messages.push('Error creating custom field');
+                        messages.push(fieldId ? 'Error updating custom field' : 'Error creating custom field');
                     }
                     
                     messages.forEach(function(msg) {

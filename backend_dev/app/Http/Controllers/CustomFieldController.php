@@ -27,6 +27,12 @@ class CustomFieldController extends Controller
         return response()->json($customFields);
     }
 
+    public function show( $id )
+    {
+        $customField = CustomField::findOrFail( $id );
+        return response()->json( $customField );
+    }
+
     public function store( Request $request )
  {
         $validated = $request->validate( [

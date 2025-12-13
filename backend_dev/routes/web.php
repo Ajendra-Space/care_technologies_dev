@@ -19,6 +19,7 @@ Route::prefix('contacts')->name('contacts.')->group(function () {
 Route::prefix('custom-fields')->name('custom-fields.')->group(function () {
     Route::get('/', [CustomFieldController::class, 'index'])->name('index');
     Route::post('/', [CustomFieldController::class, 'store'])->name('store');
+    Route::get('/{id}', [CustomFieldController::class, 'show'])->name('show');
     Route::put('/{id}', [CustomFieldController::class, 'update'])->name('update');
     Route::delete('/{id}', [CustomFieldController::class, 'destroy'])->name('destroy');
 });
